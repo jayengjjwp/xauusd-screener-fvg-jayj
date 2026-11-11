@@ -1,3 +1,4 @@
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -6,12 +7,13 @@ import yfinance as yf
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(
-    page_title="XAUUSD SMC & FVG Visual Screener", page_icon="📈", layout="wide"
+    page_title="XAUUSD SMC & FVG Live Screener", page_icon="📈", layout="wide"
 )
 
-st.title("🎯 XAUUSD Smart Money Concepts (SMC) & FVG Screener")
+st.title("🎯 XAUUSD Live SMC & FVG Screener")
 st.markdown(
-    "Aplikasi visual interaktif untuk mendeteksi **Fair Value Gap (FVG)**, **Displacement**, dan struktur harga institusional pada XAUUSD."
+    f"📅 **Waktu Analisis Terkini:** {datetime.now().strftime('%A, %d %B %Y - %H:%M')} WIB | "
+    "Screener otomatis zona *Fair Value Gap (FVG)* dan rekomendasi sinyal aksi."
 )
 
 # Sidebar Pengaturan
@@ -24,8 +26,8 @@ period = st.sidebar.selectbox(
 )
 
 
-# Tarik Data dari YFinance
-@st.cache_data(ttl=300)
+# Tarik Data dari YFinance (Tanpa Cache Lama agar Selalu Fresh)
+@st.cache_data(ttl=60)
 def load_gold_data(period, interval):
     df = yf.download("GC=F", period=period, interval=interval, progress=False)
     if isinstance(df.columns, pd.MultiIndex):
@@ -60,9 +62,9 @@ else:
 
 
     # -------------------------------------------------------------
-    # LOGIKA DETEKSI FVG & KOTAK ZONA
+    # LOGIKA DETEKSI FVG & PENENTUAN SINYAL (BUY / SELL)
     # -------------------------------------------------------------
-    def detect_fvg(df):
+    def detect_fvg_and_signals(df):
         zones = []
         for i in range(1, len(df) - 1):
             c_prev = df.iloc[i - 1]
@@ -71,9 +73,9 @@ else:
 
             body_size = abs(c_curr["Close"] - c_curr["Open"])
             avg_body = abs(df["Close"] - df["Open"]).mean()
-            is_displacement = body_size > (1.3 * avg_body)
+            is_displacement = body_size > (1.2 * avg_body)
 
-            # Bullish FVG (Demand Zone)
+            # Bullish FVG (Demand Zone) -> Potensi BUY
             if (
                 c_next["Low"] > c_prev["High"]
                 and c_curr["Close"] > c_curr["Open"]
@@ -82,12 +84,13 @@ else:
                     {
                         "Time": df.index[i],
                         "Type": "🟢 Bullish FVG (Demand)",
+                        "Action": "BUY (Tunggu Retrace ke Zona)",
                         "Zone Low": c_prev["High"],
                         "Zone High": c_next["Low"],
                         "Displacement": is_displacement,
                     }
                 )
-            # Bearish FVG (Supply Zone)
+            # Bearish FVG (Supply Zone) -> Potensi SELL
             elif (
                 c_next["High"] < c_prev["Low"]
                 and c_curr["Close"] < c_curr["Open"]
@@ -96,20 +99,47 @@ else:
                     {
                         "Time": df.index[i],
                         "Type": "🔴 Bearish FVG (Supply)",
-                        "Zone High": c_prev["Low"],
+                        "Action": "SELL (Tunggu Retrace ke Zona)",
                         "Zone Low": c_next["High"],
+                        "Zone High": c_prev["Low"],
                         "Displacement": is_displacement,
                     }
                 )
         return pd.DataFrame(zones)
 
 
-    fvg_df = detect_fvg(data)
+    fvg_df = detect_fvg_and_signals(data)
+
+    # Status Sinyal Berdasarkan Zona Terakhir
+    st.subheader("🚨 Rekomendasi Sinyal Aksi Terkini")
+    if not fvg_df.empty:
+        latest_signal = fvg_df.iloc[-1]
+
+        if "Bullish" in latest_signal["Type"]:
+            st.success(
+                f"**REKOMENDASI AKSI: 🟢 BUY SETUP**\n\n"
+                f"- **Alasan:** Terdeteksi *Bullish FVG* (Demand Zone) terbaru pada {latest_signal['Time']}.\n"
+                f"- **Zona Area Beli:** \$ {latest_signal['Zone Low']:,.2f} - \$ {latest_signal['Zone High']:,.2f}\n"
+                f"- **Saran Eksekusi:** Tunggu harga turun (retrace) masuk ke dalam kotak zona tersebut sebelum melakukan *Buy*."
+            )
+        else:
+            st.error(
+                f"**REKOMENDASI AKSI: 🔴 SELL SETUP**\n\n"
+                f"- **Alasan:** Terdeteksi *Bearish FVG* (Supply Zone) terbaru pada {latest_signal['Time']}.\n"
+                f"- **Zona Area Jual:** \$ {latest_signal['Zone Low']:,.2f} - \$ {latest_signal['Zone High']:,.2f}\n"
+                f"- **Saran Eksekusi:** Tunggu harga naik (retrace) masuk ke dalam kotak zona tersebut sebelum melakukan *Sell*."
+            )
+    else:
+        st.info(
+            "⏳ Belum ada sinyal aksi tegas (pasar sedang konsolidasi atau menunggu displacement baru)."
+        )
+
+    st.markdown("---")
 
     # -------------------------------------------------------------
-    # VISUALISASI CANDLESTICK + KOTAK ZONA (PLOTLY)
+    # VISUALISASI CHART & KOTAK ZONA (PLOTLY)
     # -------------------------------------------------------------
-    st.subheader("📊 Visualisasi Chart & Zona Kotak FVG")
+    st.subheader("📊 Visualisasi Chart & Kotak Zona Institusional")
 
     fig = go.Figure(
         data=[
@@ -124,7 +154,6 @@ else:
         ]
     )
 
-    # Tambahkan kotak zona FVG ke chart jika ada
     if not fvg_df.empty:
         recent_zones = fvg_df.tail(8)
         for _, row in recent_zones.iterrows():
@@ -146,7 +175,7 @@ else:
             )
 
     fig.update_layout(
-        title="XAUUSD Price Action & Institutional FVG Zones",
+        title="XAUUSD Price Action & FVG Action Zones",
         yaxis_title="Harga (USD)",
         xaxis_title="Waktu",
         template="plotly_dark",
@@ -157,19 +186,13 @@ else:
     st.plotly_chart(fig, use_container_width=True)
 
     # -------------------------------------------------------------
-    # TABEL DETAIL ZONA
+    # TABEL DETAIL ZONA & AKSI
     # -------------------------------------------------------------
-    st.subheader("📋 Daftar Kotak Zona Aktif")
+    st.subheader("📋 Tabel Riwayat Zona & Sinyal Aksi")
     if not fvg_df.empty:
         st.dataframe(
             fvg_df.tail(10).iloc[::-1][
-                ["Time", "Type", "Zone Low", "Zone High", "Displacement"]
+                ["Time", "Type", "Action", "Zone Low", "Zone High"]
             ],
             use_container_width=True,
         )
-        st.info(
-            "💡 **Petunjuk Penggunaan:** Kotak transparan di chart menunjukkan area *Fair Value Gap (FVG)*. "
-            "Tunggu harga melakukan retrace (koreksi) kembali ke dalam kotak zona tersebut untuk mencari peluang reaksi harga."
-        )
-    else:
-        st.warning("Belum ada zona FVG signifikan yang terbentuk pada rentang ini.")
