@@ -12,24 +12,26 @@ st.set_page_config(
 
 st.title("🎯 XAUUSD Live SMC & FVG Screener")
 st.markdown(
-    f"📅 **Waktu Analisis Terkini:** {datetime.now().strftime('%A, %d %B %Y - %H:%M')} WIB | "
+    f"📅 **Waktu Akses Sistem:** {datetime.now().strftime('%A, %d %B %Y - %H:%M')} WIB | "
     "Screener otomatis zona *Fair Value Gap (FVG)* dan rekomendasi sinyal aksi."
 )
 
 # Sidebar Pengaturan
 st.sidebar.header("⚙️ Pengaturan Market & TF")
 timeframe = st.sidebar.selectbox(
-    "Pilih Timeframe", ["15m", "1h", "4h", "1d"], index=1
+    "Pilih Timeframe", ["5m", "15m", "1h", "4h", "1d"], index=1
 )
 period = st.sidebar.selectbox(
-    "Rentang Histori Data", ["5d", "1mo", "3mo", "6mo"], index=1
+    "Rentang Histori Data", ["1d", "5d", "1mo", "3mo"], index=1
 )
 
 
-# Tarik Data dari YFinance (Tanpa Cache Lama agar Selalu Fresh)
-@st.cache_data(ttl=60)
+# Tarik Data dari YFinance (Cache dimatikan / ttl=0 agar selalu fresh)
+@st.cache_data(ttl=0)
 def load_gold_data(period, interval):
-    df = yf.download("GC=F", period=period, interval=interval, progress=False)
+    df = yf.download(
+        "GC=F", period=period, interval=interval, progress=False, auto_adjust=True
+    )
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     df.dropna(inplace=True)
@@ -40,7 +42,7 @@ data = load_gold_data(period, timeframe)
 
 if data.empty:
     st.error(
-        "Gagal memuat data pasar. Silakan coba ubah timeframe atau rentang waktu."
+        "Gagal memuat data pasar. Silakan coba ubah timeframe (misal ke 15m atau 5m) atau rentang waktu."
     )
 else:
     # Metrik Harga Terkini
@@ -118,20 +120,20 @@ else:
         if "Bullish" in latest_signal["Type"]:
             st.success(
                 f"**REKOMENDASI AKSI: 🟢 BUY SETUP**\n\n"
-                f"- **Alasan:** Terdeteksi *Bullish FVG* (Demand Zone) terbaru pada {latest_signal['Time']}.\n"
+                f"- **Alasan:** Terdeteksi *Bullish FVG* (Demand Zone) pada {latest_signal['Time']}.\n"
                 f"- **Zona Area Beli:** \$ {latest_signal['Zone Low']:,.2f} - \$ {latest_signal['Zone High']:,.2f}\n"
-                f"- **Saran Eksekusi:** Tunggu harga turun (retrace) masuk ke dalam kotak zona tersebut sebelum melakukan *Buy*."
+                f"- **Saran Eksekusi:** Pantau reaksi harga saat mendekati atau masuk ke dalam kotak zona tersebut."
             )
         else:
             st.error(
                 f"**REKOMENDASI AKSI: 🔴 SELL SETUP**\n\n"
-                f"- **Alasan:** Terdeteksi *Bearish FVG* (Supply Zone) terbaru pada {latest_signal['Time']}.\n"
+                f"- **Alasan:** Terdeteksi *Bearish FVG* (Supply Zone) pada {latest_signal['Time']}.\n"
                 f"- **Zona Area Jual:** \$ {latest_signal['Zone Low']:,.2f} - \$ {latest_signal['Zone High']:,.2f}\n"
-                f"- **Saran Eksekusi:** Tunggu harga naik (retrace) masuk ke dalam kotak zona tersebut sebelum melakukan *Sell*."
+                f"- **Saran Eksekusi:** Pantau reaksi harga saat masuk ke dalam kotak zona supply tersebut."
             )
     else:
         st.info(
-            "⏳ Belum ada sinyal aksi tegas (pasar sedang konsolidasi atau menunggu displacement baru)."
+            "⏳ Belum ada sinyal aksi FVG baru pada rentang data ini. Coba ubah timeframe ke lebih kecil (misal 5m atau 15m)."
         )
 
     st.markdown("---")
